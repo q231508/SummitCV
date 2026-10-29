@@ -1,6 +1,4 @@
-
-import os
-import random
+import sys
 import time
  
 import cv2
@@ -40,143 +38,283 @@ class GameWindow():
     def activate_game(self):
         self.window.activate()
         time.sleep(0.5)
+
+class ComputerVisionWindow():
+    def __init__(self):
+        self.calibrated = False
+        self.drawing = False
+        self.colors_picked = False
+        self.display = None
+        self.frame = None
+        self.tracking_windows = []
+        self.calibration_number = 0
+        self.hsv = None
+        self.color_maps = [None, cv2.COLORMAP_INFERNO, cv2.COLORMAP_JET, cv2.COLORMAP_HOT, cv2.COLORMAP_COOL, cv2.COLORMAP_SPRING, cv2.COLORMAP_SUMMER, cv2.COLORMAP_AUTUMN, cv2.COLORMAP_WINTER]
+        self.current_color_map_index = 0
+        self.display_modes = ["normal", "backprojection"]
+        self.current_display_mode = 0 
+    
+    def calibrate_window(self, tracking_window):
+        self.tracking_windows.append(tracking_window)
+        cv2.namedWindow("calibration")
+        cv2.setMouseCallback("calibration", self.mouse_callback)
+        while not tracking_window.calibrated:
+            cv2.imshow("calibration", self.display)
+            key = cv2.waitKey(1) & 0xFF
+        cv2.destroyWindow("calibration")
         
-    
-
-def rgb_to_hsv(rgb):
-    pixel = np.uint8([[rgb]])
-    return cv2.cvtColor(pixel, cv2.COLOR_RGB2HSV)[0, 0]
- 
- 
-def build_mask(hsv, lower, upper):
-    #(7)
-
-    lower_jacket = np.array(lower[0], dtype=np.uint8)
-    upper_jacket = np.array(upper[0], dtype=np.uint8)
-
-    lower_pants = np.array(lower[1], dtype=np.uint8)
-    upper_pants = np.array(upper[1], dtype=np.uint8)
-    
-    lower_bag = np.array(lower[2], dtype=np.uint8)
-    upper_bag = np.array(upper[2], dtype=np.uint8)
-    
-
-    jacket = cv2.inRange(hsv, lower_jacket, upper_jacket)
-    pants = cv2.inRange(hsv, lower_pants, upper_pants)
-    bag = cv2.inRange(hsv, lower_bag, upper_bag)
-    
-    mask = cv2.bitwise_or(pants, jacket)
-    mask = cv2.bitwise_or(mask, bag)
-    return mask
-
-
-def mouse_callback(event, x, y, flags, param):
-    global drawing, display, frame, calibrated, initial_x, initial_y, initial_w, initial_h, current_point, start_point
-
-    if event == cv2.EVENT_LBUTTONDOWN:
-        drawing = True
-        start_point = (x, y)
-        current_point = (x, y)
-
-    elif event == cv2.EVENT_MOUSEMOVE and drawing:
-        current_point = (x, y)
-
-        display = frame.copy()
-        cv2.rectangle(
-            display,
-            start_point,
-            current_point,
-            (0, 255, 0),
-            2
-        )
-
-    elif event == cv2.EVENT_LBUTTONUP:
-        drawing = False
-        current_point = (x, y)
-
-        cv2.rectangle(
-            display,
-            start_point,
-            current_point,
-            (0, 255, 0),
-            2
-        )      
+        cv2.namedWindow("pick colors")
+        cv2.setMouseCallback("pick colors", self.pick_colors_callback)
+        while not self.colors_picked:
+            cv2.imshow("pick colors", self.frame[tracking_window.initial_y:tracking_window.initial_y+tracking_window.initial_h, tracking_window.initial_x:tracking_window.initial_x+tracking_window.initial_w])
+            key = cv2.waitKey(1) & 0xFF
         
-        calibrated = True
-        initial_x = start_point[0]
-        initial_y = start_point[1]
-        initial_w = abs(current_point[0] - start_point[0])
-        initial_h = abs(current_point[1] - start_point[1])
+        cv2.destroyWindow("pick colors")
+        self.colors_picked = True
+        self.calibrated = True
+        tracking_window.track_window = (tracking_window.initial_x, tracking_window.initial_y, tracking_window.initial_w, tracking_window.initial_h)
 
-def pick_colors_callback(event, x, y, flags, param):
-    global colors_picked, lower, upper, initial_x, initial_y, initial_w, initial_h, frame
+    def mouse_callback(self, event, x, y, flags, param):
+        tracking_window = self.tracking_windows[self.calibration_number]
+        
+        if event == cv2.EVENT_LBUTTONDOWN:
+            self.drawing = True
+            tracking_window.start_point = (x, y)
+            tracking_window.current_point = (x, y)
 
-    if event == cv2.EVENT_LBUTTONDOWN:
-        # Get the pixel color at the clicked position
-        pixel_color = frame[initial_y + y, initial_x + x]
-        hsv_color = rgb_to_hsv(pixel_color[::-1])  # Convert BGR to RGB before converting to HSV
-        print(f"Clicked color (BGR): {pixel_color}, (HSV): {hsv_color}")
+        elif event == cv2.EVENT_MOUSEMOVE and self.drawing:
+            tracking_window.current_point = (x, y)
 
-        # Define a range around the clicked color
-        lower_bound = np.array([
-            max(0, hsv_color[0] - 10),
-            50,  # Minimum saturation to avoid very dull colors
-            max(0, hsv_color[2] - 10)
-            ], dtype=np.uint8
+            self.display = self.frame.copy()
+            cv2.rectangle(
+                self.display,
+                tracking_window.start_point,
+                tracking_window.current_point,
+                (0, 255, 0),
+                2
+            )
+
+        elif event == cv2.EVENT_LBUTTONUP:
+            self.drawing = False
+            tracking_window.current_point = (x, y)
+
+            cv2.rectangle(
+                self.display,
+                tracking_window.start_point,
+                tracking_window.current_point,
+                (0, 255, 0),
+                2
+            )      
+            
+            tracking_window.calibrated = True
+            tracking_window.initial_x = tracking_window.start_point[0]
+            tracking_window.initial_y = tracking_window.start_point[1]
+            tracking_window.initial_w = abs(tracking_window.current_point[0] - tracking_window.start_point[0])
+            tracking_window.initial_h = abs(tracking_window.current_point[1] - tracking_window.start_point[1])
+
+    def pick_colors_callback(self, event, x, y, flags, param):
+        tracking_window = self.tracking_windows[self.calibration_number]
+
+        if event == cv2.EVENT_LBUTTONDOWN:
+            # Get the pixel color at the clicked position
+            pixel_color = self.frame[tracking_window.initial_y + y, tracking_window.initial_x + x]
+            hsv_color = self.rgb_to_hsv(pixel_color[::-1])  # Convert BGR to RGB before converting to HSV
+            print(f"Clicked color (BGR): {pixel_color}, (HSV): {hsv_color}")
+
+            # Define a range around the clicked color
+            lower_bound = np.array([
+                max(0, hsv_color[0] - 10),
+                50,  # Minimum saturation to avoid very dull colors
+                max(0, hsv_color[2] - 10)
+                ], dtype=np.uint8
+            )
+            upper_bound = np.array([
+                min(179, hsv_color[0] + 10), 
+                min(255, hsv_color[1] + 10), 
+                min(255, hsv_color[2] + 10)
+                ], dtype=np.uint8
+            )
+
+            tracking_window.lower.append(lower_bound)
+            tracking_window.upper.append(upper_bound)
+
+            if len(tracking_window.lower) >= int(tracking_window.required_colors):  # Assuming we want to pick the specified number of colors
+                self.colors_picked = True
+                
+    def rgb_to_hsv(self, rgb):
+        pixel = np.uint8([[rgb]])
+        return cv2.cvtColor(pixel, cv2.COLOR_RGB2HSV)[0, 0]
+    
+    def draw_tracking_window(self, frame, tracking_window):
+        x, y, w, h = tracking_window.track_window
+        
+        # Draw the center point
+        center_x = x + w // 2
+        center_y = y + h // 2
+
+        cv2.circle(
+            frame,
+            (center_x, center_y),
+            4,
+            (255, 0, 0),  # Blue 
+            -1
         )
-        upper_bound = np.array([
-            min(179, hsv_color[0] + 10), 
-            min(150, hsv_color[1] + 10), 
-            min(150, hsv_color[2] + 10)
-            ], dtype=np.uint8
+        if tracking_window.current_tracking_method_index == 0:
+            pts = cv2.boxPoints(tracking_window.track_box)
+            pts = np.round(pts).astype(np.int32)
+            cv2.polylines(
+                frame,
+                [pts],
+                True,
+                (0, 255, 0),  # Green
+                2
+            )
+        else:
+            cv2.rectangle(
+                frame,
+                (x, y),
+                (x + w, y + h),
+                (0, 255, 0),  # Green 
+                2
+            )
+
+class TrackingWindow():
+    def __init__(self, required_colors):
+        self.term_crit = (
+            cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
+            10,
+            1,
         )
+        self.calibrated = False
+        self.lower = []
+        self.upper = []
+        self.initial_x = 0
+        self.initial_y = 0
+        self.initial_w = 0
+        self.initial_h = 0
+        self.start_point = (0, 0)
+        self.current_point = (0, 0)
+        self.track_window = (0, 0, 0, 0)
+        self.track_box = None
+        self.required_colors = required_colors
+        self.tracking_method = ["CamShift", "MeanShift"]
+        self.current_tracking_method_index = 0
+        
+        self.roi = None
+        self.roi_hist = None
+        self.roi_mask = None
+        self.roi_hsv = None
+        self.live_mask = None
+        self.sv_floor = None
+        self.SV_FLOOR_LOWER = (0, 60, 60)
+        self.SV_FLOOR_UPPER = (179, 255, 255)
+        self.dest = None
+        
+        self.selected = False
 
-        lower.append(lower_bound)
-        upper.append(upper_bound)
+    
+    def update_roi(self, frame):
+        x, y, w, h = self.track_window
+        self.roi = frame[y:y+h, x:x+w]
+        self.roi_hsv = cv2.cvtColor(self.roi, cv2.COLOR_BGR2HSV)
+        self.live_mask = self.build_mask(self.roi_hsv, self.lower, self.upper, self.required_colors)
+        self.sv_floor = cv2.inRange(self.roi_hsv, self.SV_FLOOR_LOWER, self.SV_FLOOR_UPPER)
+        self.live_mask = cv2.bitwise_and(self.live_mask, self.sv_floor)
+        self.roi_mask = self.live_mask
+        self.roi_hist = cv2.calcHist([self.roi_hsv], [0, 1], self.roi_mask, [30, 32], [0, 180, 0, 256])
+        cv2.normalize(self.roi_hist, self.roi_hist, 0, 255, cv2.NORM_MINMAX)
+            
+    def build_mask(self, hsv, lower, upper, required_colors):
+        for i in range(required_colors):
+            lower_bound = np.array(lower[i], dtype=np.uint8)
+            upper_bound = np.array(upper[i], dtype=np.uint8)
+            range_mask = cv2.inRange(hsv, lower_bound, upper_bound)
+            if i == 0:
+                combined_mask = range_mask
+            else:
+                combined_mask = cv2.bitwise_or(combined_mask, range_mask)
+        return combined_mask
+    
+    def draw_tracking_window(self):
+        if self.current_tracking_method_index == 0: 
+            self.track_box, self.track_window = cv2.CamShift(self.dest, self.track_window, self.term_crit)
+            x, y, w, h = self.track_window
+            center_x = x + w // 2
+            center_y = y + h // 2
+            cv2.circle(
+                self.dest,
+                (center_x, center_y),
+                4,
+                (255, 0, 0),  # Blue 
+                -1
+            )
+            
+            pts = cv2.boxPoints(self.track_box);
+            pts = np.round(pts).astype(np.int32)
+            hbp = cv2.polylines(
+                    self.dest,
+                    [pts],
+                    True,
+                    255,
+                    2
+                )
+        else:
+            self.track_box, self.track_window = cv2.meanShift(self.dest, self.track_window, self.term_crit)
+            x, y, w, h = self.track_window
 
-        if len(lower) >= 3:  # Assuming we want to pick 3 colors (jacket, pants, bag)
-            colors_picked = True
+            cv2.rectangle(
+                self.dest,
+                (x, y),
+                (x + w, y + h),
+                (255, 0, 0),  # Green 
+                2
+            )
+            
+            # Draw the center point
+            center_x = x + w // 2
+            center_y = y + h // 2
+
+            cv2.circle(
+                self.dest,
+                (center_x, center_y),
+                4,
+                (255, 0, 0),  # Blue 
+                -1
+            )
+                    
+
 
 def main():
-    global drawing, display, calibrated, colors_picked, lower, upper, initial_x, initial_y, initial_w, initial_h, frame
+    
+    if len(sys.argv) > 1:
+        game_title = sys.argv[1]
+        required_colors = int(sys.argv[2])
+        
+    else:
+        raise RuntimeError("Game title not provided. Please provide the game title as a command line argument.")
     
     # Find the game window and activate it
-    game = GameWindow("Steep")
+    game = GameWindow(game_title)
     game.find_game()
     game.activate_game()
 
-    # Termination critea for the tracking window
-    term_crit = (
-        cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
-        10,
-        1,
-    )
-    
-
-    drawing = False
-    calibrated = False
-    colors_picked = False
-    lower = []
-    upper = []
+    computer_vision_window = ComputerVisionWindow()
 
     t = time.time()
-
-    loaded = False
+    
     with mss.MSS() as screenshotter:
         try:
-        
             while True:
                 if (time.time() - t) > 1/60:
                     t = time.time()
-                    global frame, initial_x, initial_h, initial_w, initial_y
                     
-                    # Get the current steep window position and size
+                    # Get the current game window position and size
                     left = game.window.left 
                     top = game.window.top
                     width = game.window.width
                     height = game.window.height
                     if width <= 0 or height <= 0:
-                        raise RuntimeError("Steep window is minimized or not visible")
+                        raise RuntimeError("Game window is minimized or not visible")
         
                     monitor = {
                         "left": left,
@@ -185,148 +323,59 @@ def main():
                         "height": height,
                     }
         
-                    # Capture the steep window
+                    # Capture the game window
                     screenshot = screenshotter.grab(monitor)
         
                     # Convert screenshot image to an OpenCV BGR image
                     frame = np.array(screenshot)
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-        
-                    if not calibrated:
-                        display = frame
+                    computer_vision_window.frame = frame
 
-                        cv2.namedWindow("calibration")
-                        cv2.setMouseCallback("calibration", mouse_callback)
-                        ##("lol")
-                        while not calibrated:
-                            cv2.imshow("calibration", display)
-                            key = cv2.waitKey(1) & 0xFF
-
+                    if not computer_vision_window.calibrated:
                         
-                        cv2.destroyWindow("calibration")
-                        track_window = (
-                            initial_x,
-                            initial_y,
-                            initial_w,
-                            initial_h,
-                        )
-                        
-                        
-                        #f2 = open("calibration.txt", "w")
-                        #f2.write(f"{str(initial_x)}\n")
-                        #f2.write(f"{str(initial_y)}\n")
-                        #f2.write(f"{str(initial_w)}\n")
-                        #f2.write(f"{str(initial_h)}\n")
+                        tracking_window = TrackingWindow(required_colors)
+                        computer_vision_window.display = frame
+                        computer_vision_window.calibrate_window(tracking_window)
+                        tracking_window.update_roi(frame)
 
-                        time.sleep(1)
-                        
-                        cv2.namedWindow("pick colors")
-                        cv2.setMouseCallback("pick colors", pick_colors_callback)
-                        while not colors_picked:
-                            cv2.imshow("pick colors", frame[initial_y:initial_y+initial_h, initial_x:initial_x+initial_w])
-                            key = cv2.waitKey(1) & 0xFF
-                        
-                        cv2.destroyWindow("pick colors")
-                        colors_picked = True
-                        calibrated = True
+                    computer_vision_window.hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-                        x, y, w, h = track_window
-                        roi = frame[y:y+h, x:x+w]
-                        hsv_roi =  cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-                        live_mask = build_mask(hsv_roi, lower, upper)
-                        SV_FLOOR_LOWER = tuple(
-                            int(min(lower[0][i], lower[1][i], lower[2][i]))
-                            for i in range(3)
-                        )
-
-                        SV_FLOOR_UPPER = tuple(
-                            int(max(upper[0][i], upper[1][i], upper[2][i]))
-                            for i in range(3)
-                        )
-
-                        
-                        sv_floor = cv2.inRange(hsv_roi, SV_FLOOR_LOWER, SV_FLOOR_UPPER)
-                        live_mask = cv2.bitwise_and(live_mask, sv_floor)
-                        roi_mask = live_mask
-                        roi_hist = cv2.calcHist([hsv_roi], [0], roi_mask, [180], [0, 180])
-                        cv2.normalize(roi_hist,roi_hist,0,255,cv2.NORM_MINMAX)
-
-                    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
-                    dst = cv2.calcBackProject([hsv],[0],roi_hist,[0,180],1)
-
-                    trackBox, track_window = cv2.CamShift(
-                        dst,
-                        track_window,
-                        term_crit
-                    )
-
-                    meanshift_trackBox, meanshift_track_window = cv2.meanShift(
-                        dst,
-                        track_window,
-                        term_crit
-                    )
-                    
-                    dst = cv2.applyColorMap(dst, cv2.COLORMAP_INFERNO)
+                    tracking_window.dest = cv2.calcBackProject(
+                                            [computer_vision_window.hsv], 
+                                            [0, 1], 
+                                            tracking_window.roi_hist, 
+                                            [0,180, 0, 256], 
+                                            1
+                                        )
 
                     
-                    
-                    x, y, w, h = track_window
-                                            
-
                     # Draw the tracking rectangle
-                    cv2.rectangle(
-                        frame,
-                        (x, y),
-                        (x + w, y + h),
-                        (0, 255, 0),  # Green 
-                        2
-                    )
-        
-                    # Draw the center point
-                    center_x = x + w // 2
-                    center_y = y + h // 2
-        
-                    cv2.circle(
-                        frame,
-                        (center_x, center_y),
-                        4,
-                        (255, 0, 0),  # Blue 
-                        -1
-                    )
-        
-                    cv2.rectangle(
-                        dst,
-                        (x, y),
-                        (x + w, y + h),
-                        (255, 0, 0),
-                        2
-                    )
-        
-                    cv2.circle(
-                        dst,
-                        (center_x, center_y),
-                        4,
-                        (255, 0, 0),
-                        -1
-                    )
+                    tracking_window.draw_tracking_window()
+                    computer_vision_window.draw_tracking_window(frame, tracking_window)
                     
-                    pts = cv2.boxPoints(trackBox);
-                    pts = np.round(pts).astype(np.int32)
-                    hbp = cv2.polylines(dst,[pts],True,255,2)
-                    
-                    
-                    cv2.imshow("projection", dst)
+                    if computer_vision_window.color_maps[computer_vision_window.current_color_map_index] is not None:
+                                            tracking_window.dest = cv2.applyColorMap(tracking_window.dest, computer_vision_window.color_maps[computer_vision_window.current_color_map_index])                                            
+                
+                    if computer_vision_window.display_modes[computer_vision_window.current_display_mode] == "backprojection":
+                        cv2.imshow("projection", tracking_window.dest)
+                    else:
+                        cv2.imshow("projection", frame)
 
-                    
                     # q or Esc to quit
                     key = cv2.waitKey(1) & 0xFF
         
                     if key == ord("q") or key == 27:
-
                         break
                     
+                    if key == ord("c"):
+                        computer_vision_window.current_color_map_index = (computer_vision_window.current_color_map_index + 1) % len(computer_vision_window.color_maps)
 
+                    if key == ord("d"):
+                        computer_vision_window.current_display_mode = (computer_vision_window.current_display_mode + 1) % len(computer_vision_window.display_modes)
+
+                    if key == ord("t"):
+                        tracking_window.current_tracking_method_index = (tracking_window.current_tracking_method_index + 1) % len(tracking_window.tracking_method)
+                        print(f"Switched to tracking method: {tracking_window.tracking_method[tracking_window.current_tracking_method_index]}")
                     
                 
     
