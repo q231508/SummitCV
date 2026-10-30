@@ -6,6 +6,10 @@ import mss
 import numpy as np
 import pygetwindow as gw
 
+import subprocess
+import platform
+
+
 class GameWindow():
     def __init__(self, title):
         self.game_title = title
@@ -73,6 +77,8 @@ class ComputerVisionWindow():
         self.colors_picked = True
         self.calibrated = True
         tracking_window.track_window = (tracking_window.initial_x, tracking_window.initial_y, tracking_window.initial_w, tracking_window.initial_h)
+        tracking_window.camshift_track_window = (tracking_window.initial_x, tracking_window.initial_y, tracking_window.initial_w, tracking_window.initial_h)
+        tracking_window.meanshift_track_window = (tracking_window.initial_x, tracking_window.initial_y, tracking_window.initial_w, tracking_window.initial_h)
 
     def mouse_callback(self, event, x, y, flags, param):
         tracking_window = self.tracking_windows[self.calibration_number]
@@ -146,36 +152,40 @@ class ComputerVisionWindow():
         return cv2.cvtColor(pixel, cv2.COLOR_RGB2HSV)[0, 0]
     
     def draw_tracking_window(self, frame, tracking_window):
-        x, y, w, h = tracking_window.track_window
-        
-        # Draw the center point
-        center_x = x + w // 2
-        center_y = y + h // 2
+        if not tracking_window.hide:
+            if tracking_window.current_tracking_method_index == 0:
+                x, y, w, h = tracking_window.camshift_track_window
+                
+                pts = cv2.boxPoints(tracking_window.track_box)
+                pts = np.round(pts).astype(np.int32)
+                cv2.polylines(
+                    frame,
+                    [pts],
+                    True,
+                    (0, 255, 0),  # Green
+                    2
+                )
+            else:
+                x, y, w, h = tracking_window.meanshift_track_window
+                
+                cv2.rectangle(
+                    frame,
+                    (x, y),
+                    (x + w, y + h),
+                    (0, 255, 0),  # Green 
+                    2
+                )
+                        
+            # Draw the center point
+            center_x = x + w // 2
+            center_y = y + h // 2
 
-        cv2.circle(
-            frame,
-            (center_x, center_y),
-            4,
-            (255, 0, 0),  # Blue 
-            -1
-        )
-        if tracking_window.current_tracking_method_index == 0:
-            pts = cv2.boxPoints(tracking_window.track_box)
-            pts = np.round(pts).astype(np.int32)
-            cv2.polylines(
+            cv2.circle(
                 frame,
-                [pts],
-                True,
-                (0, 255, 0),  # Green
-                2
-            )
-        else:
-            cv2.rectangle(
-                frame,
-                (x, y),
-                (x + w, y + h),
-                (0, 255, 0),  # Green 
-                2
+                (center_x, center_y),
+                4,
+                (255, 0, 0),  # Blue 
+                -1
             )
 
 class TrackingWindow():
@@ -195,6 +205,8 @@ class TrackingWindow():
         self.start_point = (0, 0)
         self.current_point = (0, 0)
         self.track_window = (0, 0, 0, 0)
+        self.camshift_track_window = (0, 0, 0, 0)
+        self.meanshift_track_window = (0, 0, 0, 0)
         self.track_box = None
         self.required_colors = required_colors
         self.tracking_method = ["CamShift", "MeanShift"]
@@ -211,6 +223,7 @@ class TrackingWindow():
         self.dest = None
         
         self.selected = False
+        self.hide = False
 
     
     def update_roi(self, frame):
@@ -236,52 +249,68 @@ class TrackingWindow():
         return combined_mask
     
     def draw_tracking_window(self):
+        self.track_box, self.camshift_track_window = cv2.CamShift(self.dest, self.camshift_track_window, self.term_crit)
+        _, self.meanshift_track_window = cv2.meanShift(self.dest, self.meanshift_track_window, self.term_crit)
+
         if self.current_tracking_method_index == 0: 
-            self.track_box, self.track_window = cv2.CamShift(self.dest, self.track_window, self.term_crit)
-            x, y, w, h = self.track_window
-            center_x = x + w // 2
-            center_y = y + h // 2
-            cv2.circle(
-                self.dest,
-                (center_x, center_y),
-                4,
-                (255, 0, 0),  # Blue 
-                -1
-            )
             
-            pts = cv2.boxPoints(self.track_box);
-            pts = np.round(pts).astype(np.int32)
-            hbp = cv2.polylines(
+            if not self.hide:
+                x, y, w, h = self.camshift_track_window
+                center_x = x + w // 2
+                center_y = y + h // 2
+                cv2.circle(
                     self.dest,
-                    [pts],
-                    True,
-                    255,
+                    (center_x, center_y),
+                    4,
+                    (255, 0, 0),  # Blue 
+                    -1
+                )
+                
+                pts = cv2.boxPoints(self.track_box);
+                pts = np.round(pts).astype(np.int32)
+                hbp = cv2.polylines(
+                        self.dest,
+                        [pts],
+                        True,
+                        255,
+                        2
+                    )
+        else:
+            
+            if not self.hide:
+                x, y, w, h = self.meanshift_track_window
+                cv2.rectangle(
+                    self.dest,
+                    (x, y),
+                    (x + w, y + h),
+                    (255, 0, 0),  # Green 
                     2
                 )
-        else:
-            self.track_box, self.track_window = cv2.meanShift(self.dest, self.track_window, self.term_crit)
-            x, y, w, h = self.track_window
+                
+                # Draw the center point
+                center_x = x + w // 2
+                center_y = y + h // 2
 
-            cv2.rectangle(
-                self.dest,
-                (x, y),
-                (x + w, y + h),
-                (255, 0, 0),  # Green 
-                2
-            )
-            
-            # Draw the center point
-            center_x = x + w // 2
-            center_y = y + h // 2
+                cv2.circle(
+                    self.dest,
+                    (center_x, center_y),
+                    4,
+                    (255, 0, 0),  # Blue 
+                    -1
+                )
 
-            cv2.circle(
-                self.dest,
-                (center_x, center_y),
-                4,
-                (255, 0, 0),  # Blue 
-                -1
-            )
-                    
+class Terminal():
+    def __init__(self):
+        self.clear_screen()
+        self.key = None
+        self.tracking_windows = []
+    
+    def clear_screen(self):
+        # Determine the command based on the OS
+        command = "cls" if platform.system() == "Windows" else "clear"
+        
+        # Run the command
+        subprocess.run([command], shell=True)
 
 
 def main():
@@ -301,6 +330,8 @@ def main():
     computer_vision_window = ComputerVisionWindow()
 
     t = time.time()
+    
+    terminal = Terminal()
     
     with mss.MSS() as screenshotter:
         try:
@@ -377,6 +408,12 @@ def main():
                         tracking_window.current_tracking_method_index = (tracking_window.current_tracking_method_index + 1) % len(tracking_window.tracking_method)
                         print(f"Switched to tracking method: {tracking_window.tracking_method[tracking_window.current_tracking_method_index]}")
                     
+                    if key == ord("h"):
+                        tracking_window.hide = not tracking_window.hide
+                        if tracking_window.hide:
+                            print("Tracking window hidden")
+                        else:
+                            print("Tracking window shown")
                 
     
         finally:
