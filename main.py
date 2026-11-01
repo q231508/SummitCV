@@ -443,8 +443,9 @@ class Terminal():
             tracking_window.selected = True
         
         elif key == ord("l"):
+            original_label = tracking_window.label
             tracking_window.label = input("Enter new label for the selected tracking window: ")
-            message = f"Window {tracking_window.index + 1} label changed to: {tracking_window.label}"
+            message = f"Window {original_label} label changed to: {tracking_window.label}"
             
             
         self.update_terminal(tracking_window, computer_vision_window, message=message)
@@ -465,7 +466,9 @@ class Terminal():
             print(f"  Calibrated: {tracking_window.calibrated}")
             print(f"  Colors Picked: {tracking_window.colors_picked}")
             print(f"  Selected: {tracking_window.selected}")
-            print(f"  Hide: {tracking_window.hide}")
+            print(f"  Hide: {tracking_window.hide}\n")
+            print("Controls: [c] Change Color Map | [d] Change Display Mode | [t] Change Tracking Method | [h] Hide/Show Window | [s] Select/Deselect Window | [l] Change Label | [q] Quit")
+            
         else:
             print("Tracking window not calibrated yet.")
 
