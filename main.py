@@ -56,6 +56,7 @@ class ComputerVisionWindow():
         self.current_color_map_index = 0
         self.display_modes = ["normal", "backprojection"]
         self.current_display_mode = 0 
+        
     
     def calibrate_window(self, tracking_window):
         original_index = self.tracking_window_index
@@ -67,6 +68,9 @@ class ComputerVisionWindow():
         while not tracking_window.calibrated:
             cv2.imshow("calibration", self.display)
             key = cv2.waitKey(1) & 0xFF
+            if key == ord("q") or key == 27:
+                exit()
+            
         cv2.destroyWindow("calibration")
         
         cv2.namedWindow("pick colors")
@@ -76,6 +80,9 @@ class ComputerVisionWindow():
         while not tracking_window.colors_picked:
             cv2.imshow("pick colors", self.frame[tracking_window.initial_y:tracking_window.initial_y+tracking_window.initial_h, tracking_window.initial_x:tracking_window.initial_x+tracking_window.initial_w])
             key = cv2.waitKey(1) & 0xFF
+            if key == ord("q") or key == 27:
+                exit()
+                
         
         cv2.destroyWindow("pick colors")
         
@@ -161,6 +168,7 @@ class ComputerVisionWindow():
         return cv2.cvtColor(pixel, cv2.COLOR_RGB2HSV)[0, 0]
     
     def draw_tracking_window(self, frame, tracking_window):
+        
         if not tracking_window.hide:
             if tracking_window.tracking_method[tracking_window.current_tracking_method_index] == "CamShift":
                 x, y, w, h = tracking_window.camshift_track_window
@@ -175,12 +183,31 @@ class ComputerVisionWindow():
                         (0, 0, 255),  # Red
                         2
                     )
+                    cv2.putText(
+                        frame,
+                        tracking_window.label,
+                        (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 0, 255),
+                        2
+                    )
                 else:
                     cv2.polylines(
                         frame,
                         [pts],
                         True,
                         (0, 255, 0),  # Green
+                        2
+                    )
+                    # Label the selected tracking window
+                    cv2.putText(
+                        frame,
+                        tracking_window.label,
+                        (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 255, 0),
                         2
                     )
             else:
@@ -194,12 +221,30 @@ class ComputerVisionWindow():
                         (0, 0, 255),  # Red 
                         2
                     )
+                    cv2.putText(
+                        frame,
+                        tracking_window.label,
+                        (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 0, 255),
+                        2
+                    )
                 else:
                     cv2.rectangle(
                         frame,
                         (x, y),
                         (x + w, y + h),
                         (0, 255, 0),  # Green 
+                        2
+                    )
+                    cv2.putText(
+                        frame,
+                        tracking_window.label,
+                        (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        (0, 255, 0),
                         2
                     )
                         
@@ -262,6 +307,7 @@ class TrackingWindow():
         
         self.selected = False
         self.hide = False
+        self.label = f"Tracking Window {self.index + 1}"
 
     
     def update_roi(self, frame):
@@ -312,7 +358,16 @@ class TrackingWindow():
                     4,
                     (255, 0, 0),  # Blue
                     -1
-                )           
+                )         
+                cv2.putText(
+                    self.dest,
+                    self.label,
+                    (x, y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (255, 0, 0),
+                    2
+                )  
         else:
             if not self.hide:
                 x, y, w, h = self.camshift_track_window
@@ -335,6 +390,15 @@ class TrackingWindow():
                         (255, 0, 0),  # Blue
                         2
                     )
+                cv2.putText(
+                    self.dest,
+                    self.label,
+                    (x, y - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6,
+                    (255, 0, 0),
+                    2
+                )  
 
 class Terminal():
     def __init__(self):
@@ -373,16 +437,21 @@ class Terminal():
         elif key == ord("s"):
             tracking_window.selected = not tracking_window.selected
 
-            message = f"Tracking window {tracking_window.index + 1} deselected"
+            message = f"Window: {tracking_window.label}. Deselected"
             computer_vision_window.tracking_window_index = (computer_vision_window.tracking_window_index + 1) % len(computer_vision_window.tracking_windows)
             tracking_window = computer_vision_window.tracking_windows[computer_vision_window.tracking_window_index]
             tracking_window.selected = True
+        
+        elif key == ord("l"):
+            tracking_window.label = input("Enter new label for the selected tracking window: ")
+            message = f"Window {tracking_window.index + 1} label changed to: {tracking_window.label}"
+            
             
         self.update_terminal(tracking_window, computer_vision_window, message=message)
     
     def update_terminal(self, tracking_window, computer_vision_window, message=None):
         self.clear_screen()
-        print(f"Current Tracking Window: {tracking_window.index + 1}")
+        print(f"Current Window: {tracking_window.label} (Index: {tracking_window.index + 1})")
         if message:
             print(f"Message: {message}")
         if tracking_window.calibrated:
@@ -392,6 +461,7 @@ class Terminal():
             print(f"  HSV Upper Bounds: {tracking_window.upper}")
             print(f"  Tracking Method: {tracking_window.tracking_method[tracking_window.current_tracking_method_index]}")
             print(f"  Current Color Map: {computer_vision_window.color_map_names[computer_vision_window.color_maps[computer_vision_window.current_color_map_index]]}")
+            print(f"  Label: {tracking_window.label}")
             print(f"  Calibrated: {tracking_window.calibrated}")
             print(f"  Colors Picked: {tracking_window.colors_picked}")
             print(f"  Selected: {tracking_window.selected}")
