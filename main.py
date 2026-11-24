@@ -4,10 +4,13 @@ import time
 import cv2
 import mss
 import numpy as np
+from numpy.strings import index
 import pygetwindow as gw
 
 import subprocess
 import platform
+
+import keyboard
 
 
 class GameWindow():
@@ -48,19 +51,19 @@ class ComputerVisionWindow():
         self.drawing = False
         self.display = None
         self.frame = None
-        self.tracking_windows = []
-        self.tracking_window_index = 0
+        self.tracking_windows = {}
+        self.tracking_window_id = 0
         self.hsv = None
         self.color_maps = [None, cv2.COLORMAP_INFERNO, cv2.COLORMAP_JET, cv2.COLORMAP_HOT, cv2.COLORMAP_COOL, cv2.COLORMAP_SPRING, cv2.COLORMAP_SUMMER, cv2.COLORMAP_AUTUMN, cv2.COLORMAP_WINTER]
         self.color_map_names = {None: "Grayscale", cv2.COLORMAP_INFERNO: "Inferno", cv2.COLORMAP_JET: "Jet", cv2.COLORMAP_HOT: "Hot", cv2.COLORMAP_COOL: "Cool", cv2.COLORMAP_SPRING: "Spring", cv2.COLORMAP_SUMMER: "Summer", cv2.COLORMAP_AUTUMN: "Autumn", cv2.COLORMAP_WINTER: "Winter"}
-        self.current_color_map_index = 0
+        self.current_color_map_id = 0
         self.display_modes = ["normal", "backprojection"]
         self.current_display_mode = 0 
         
     
     def calibrate_window(self, tracking_window):
-        original_index = self.tracking_window_index
-        self.tracking_window_index = tracking_window.index
+        original_id = self.tracking_window_id
+        self.tracking_window_id = tracking_window.id
         cv2.namedWindow("calibration")
         x, y, width, height = cv2.getWindowImageRect("calibration")
 
@@ -86,7 +89,7 @@ class ComputerVisionWindow():
         
         cv2.destroyWindow("pick colors")
         
-        self.tracking_window_index = original_index
+        self.tracking_window_id = original_id
         tracking_window.colors_picked = True
         tracking_window.calibrated = True
         tracking_window.track_window = (tracking_window.initial_x, tracking_window.initial_y, tracking_window.initial_w, tracking_window.initial_h)
@@ -94,7 +97,7 @@ class ComputerVisionWindow():
         tracking_window.meanshift_track_window = (tracking_window.initial_x, tracking_window.initial_y, tracking_window.initial_w, tracking_window.initial_h)
 
     def mouse_callback(self, event, x, y, flags, param):
-        tracking_window = self.tracking_windows[self.tracking_window_index]
+        tracking_window = self.tracking_windows[self.tracking_window_id]
         
         if event == cv2.EVENT_LBUTTONDOWN:
             self.drawing = True
@@ -133,7 +136,7 @@ class ComputerVisionWindow():
             
 
     def pick_colors_callback(self, event, x, y, flags, param):
-        tracking_window = self.tracking_windows[self.tracking_window_index]
+        tracking_window = self.tracking_windows[self.tracking_window_id]
 
         if event == cv2.EVENT_LBUTTONDOWN:
             # Get the pixel color at the clicked position
@@ -170,7 +173,7 @@ class ComputerVisionWindow():
     def draw_tracking_window(self, frame, tracking_window):
         
         if not tracking_window.hide:
-            if tracking_window.tracking_method[tracking_window.current_tracking_method_index] == "CamShift":
+            if tracking_window.tracking_method[tracking_window.current_tracking_method_id] == "CamShift":
                 x, y, w, h = tracking_window.camshift_track_window
                 
                 pts = cv2.boxPoints(tracking_window.track_box)
@@ -270,13 +273,13 @@ class ComputerVisionWindow():
                 )
 
 class TrackingWindow():
-    def __init__(self, required_colors, index):
+    def __init__(self, required_colors, id):
         self.term_crit = (
             cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT,
             10,
             1,
         )
-        self.index = index
+        self.id = id
         self.calibrated = False
         self.colors_picked = False
         self.lower = []
@@ -293,7 +296,7 @@ class TrackingWindow():
         self.track_box = None
         self.required_colors = required_colors
         self.tracking_method = ["MeanShift", "CamShift"]
-        self.current_tracking_method_index = 0
+        self.current_tracking_method_id = 0
         
         self.roi = None
         self.roi_hist = None
@@ -307,7 +310,10 @@ class TrackingWindow():
         
         self.selected = False
         self.hide = False
-        self.label = f"Tracking Window {self.index + 1}"
+        self.label = f"Tracking Window {self.id}"
+        
+        self.next = None
+        self.prev = None
 
     
     def update_roi(self, frame):
@@ -336,7 +342,7 @@ class TrackingWindow():
         self.track_box, self.camshift_track_window = cv2.CamShift(self.dest, self.camshift_track_window, self.term_crit)
         _, self.meanshift_track_window = cv2.meanShift(self.dest, self.meanshift_track_window, self.term_crit)
 
-        if self.tracking_method[self.current_tracking_method_index] == "MeanShift": 
+        if self.tracking_method[self.current_tracking_method_id] == "MeanShift": 
             
             if not self.hide:
                 x, y, w, h = self.meanshift_track_window
@@ -404,7 +410,14 @@ class Terminal():
     def __init__(self):
         self.clear_screen()
         self.key = None
-        self.tracking_windows = []
+        self.tracking_windows = {}
+        self.control_layer = 0
+        self.next_available_id = 0
+        self.frame = None
+        self.head = None
+        self.end = None
+        self.command = ""
+        self.typing = False
     
     def clear_screen(self):
         # Determine the command based on the OS
@@ -415,66 +428,161 @@ class Terminal():
         
     def process_key(self, key, tracking_window, computer_vision_window):    
         message = None    
-        if key == ord("c"):
-            computer_vision_window.current_color_map_index = (computer_vision_window.current_color_map_index + 1) % len(computer_vision_window.color_maps)
-            message = f"Switched to color map: {computer_vision_window.color_map_names[computer_vision_window.color_maps[computer_vision_window.current_color_map_index]]}"
+        if key == ord("c") or key == ord("C"):
+            computer_vision_window.current_color_map_id = (computer_vision_window.current_color_map_id + 1) % len(computer_vision_window.color_maps)
+            message = f"Switched to color map: {computer_vision_window.color_map_names[computer_vision_window.color_maps[computer_vision_window.current_color_map_id]]}"
 
-        elif key == ord("d"):
+        elif key == ord("d") or key == ord("D"):
             computer_vision_window.current_display_mode = (computer_vision_window.current_display_mode + 1) % len(computer_vision_window.display_modes)
             message = f"Switched to display mode: {computer_vision_window.display_modes[computer_vision_window.current_display_mode]}"
 
-        elif key == ord("t"):
-            tracking_window.current_tracking_method_index = (tracking_window.current_tracking_method_index + 1) % len(tracking_window.tracking_method)
-            message = f"Switched to tracking method: {tracking_window.tracking_method[tracking_window.current_tracking_method_index]}"
+        elif key == ord("t") or key == ord("T"):
+            tracking_window.current_tracking_method_id = (tracking_window.current_tracking_method_id + 1) % len(tracking_window.tracking_method)
+            message = f"Switched to tracking method: {tracking_window.tracking_method[tracking_window.current_tracking_method_id]}"
         
-        elif key == ord("h"):
+        elif key == ord("h") or key == ord("H"):
             tracking_window.hide = not tracking_window.hide
             if tracking_window.hide:
                 message = "Tracking window hidden"
             else:
                 message = "Tracking window shown"
 
-        elif key == ord("s"):
-            tracking_window.selected = not tracking_window.selected
-
-            message = f"Window: {tracking_window.label}. Deselected"
-            computer_vision_window.tracking_window_index = (computer_vision_window.tracking_window_index + 1) % len(computer_vision_window.tracking_windows)
-            tracking_window = computer_vision_window.tracking_windows[computer_vision_window.tracking_window_index]
-            tracking_window.selected = True
+        elif keyboard.is_pressed("left"):
+            if len(computer_vision_window.tracking_windows) > 1:
+                tracking_window.selected = False
+                
+                if tracking_window.prev:
+                    tracking_window.prev.selected = True
+                    tracking_window = tracking_window.prev
+                    message = f"Selected window: {tracking_window.label}"
+                else:
+                    self.end.selected = True
+                    tracking_window = self.end
+                    message = f"Selected window: {tracking_window.label}"
+                    
+                computer_vision_window.tracking_window_id = tracking_window.id
         
-        elif key == ord("l"):
+        elif keyboard.is_pressed("right"):
+            if len(computer_vision_window.tracking_windows) > 1:
+                tracking_window.selected = False
+                
+                if tracking_window.next:
+                    tracking_window.next.selected = True
+                    tracking_window = tracking_window.next
+                    message = f"Selected window: {tracking_window.label}"
+                else:
+                    self.head.selected = True
+                    tracking_window = self.head
+                    message = f"Selected window: {tracking_window.label}"
+                computer_vision_window.tracking_window_id = tracking_window.id
+
+        
+        elif key == ord("n") or key == ord("N"):
+            self.clear_screen()
+            print("Adding a new tracking window...")
+            input_required_colors = input("Enter the number of colors to track for the new window: ")
+            try:
+                required_colors = int(input_required_colors)
+                new_tracking_window = TrackingWindow(required_colors, self.next_available_id)
+                computer_vision_window.tracking_windows[self.next_available_id] = new_tracking_window
+                self.tracking_windows[self.next_available_id] = new_tracking_window
+                self.update_terminal(new_tracking_window, computer_vision_window)
+                
+                computer_vision_window.display = self.frame
+                computer_vision_window.calibrate_window(new_tracking_window)
+                new_tracking_window.update_roi(self.frame)
+                self.next_available_id += 1
+                
+                if self.end:
+                    new_tracking_window.prev = self.end
+                    self.end.next = new_tracking_window
+                self.end = new_tracking_window
+                message = f"Added new tracking window: {new_tracking_window.label} with {required_colors}-color mask."
+                
+                
+            except ValueError:
+                message = "Invalid input. Please enter a valid integer."
+        
+        elif key == ord("x") or key == ord("X"):
+            if len(computer_vision_window.tracking_windows) > 1:
+
+                removed_window = computer_vision_window.tracking_windows[computer_vision_window.tracking_window_id]
+                if removed_window.prev:
+                    if removed_window.next:
+                        removed_window.prev.next = removed_window.next
+                        removed_window.next.prev = removed_window.prev
+                    else:
+                        removed_window.prev.next = None
+                        self.end = removed_window.prev
+                    removed_window.prev.selected = True
+                    computer_vision_window.tracking_window_id = removed_window.prev.id
+                    tracking_window = removed_window.prev
+                    
+                elif removed_window.next:
+                    removed_window.next.prev = None
+                    removed_window.next.selected = True
+                    computer_vision_window.tracking_window_id = removed_window.next.id
+                    tracking_window = removed_window.next
+                                                        
+                computer_vision_window.tracking_windows.pop(removed_window.id, None)
+                self.tracking_windows.pop(removed_window.id, None)
+                message = f"Removed tracking window: {removed_window.label}"
+                
+                
+            elif len(computer_vision_window.tracking_windows) == 1:
+                message = "Cannot remove the last tracking window. At least one tracking window must remain."
+
+
+        elif key == ord("l") or key == ord("L"):
             original_label = tracking_window.label
+            self.typing = True
             tracking_window.label = input("Enter new label for the selected tracking window: ")
             message = f"Window {original_label} label changed to: {tracking_window.label}"
+        
             
             
         self.update_terminal(tracking_window, computer_vision_window, message=message)
     
     def update_terminal(self, tracking_window, computer_vision_window, message=None):
         self.clear_screen()
-        print(f"Current Window: {tracking_window.label} (Index: {tracking_window.index + 1})")
+        print(f"Current Window: {tracking_window.label} (ID: {tracking_window.id})")
+        print(f"Head of Linked List: {self.head.label if self.head else 'None'} (ID: {self.head.id if self.head else 'None'})")
+        print(f"End of Linked List: {self.end.label if self.end else 'None'} (ID: {self.end.id if self.end else 'None'})")
+
         if message:
             print(f"Message: {message}")
+        print("")
         if tracking_window.calibrated:
             print(f"  Initial Position: ({tracking_window.initial_x}, {tracking_window.initial_y})")
             print(f"  Initial Size: ({tracking_window.initial_w}, {tracking_window.initial_h})")
             print(f"  HSV Lower Bounds: {tracking_window.lower}")
             print(f"  HSV Upper Bounds: {tracking_window.upper}")
-            print(f"  Tracking Method: {tracking_window.tracking_method[tracking_window.current_tracking_method_index]}")
-            print(f"  Current Color Map: {computer_vision_window.color_map_names[computer_vision_window.color_maps[computer_vision_window.current_color_map_index]]}")
+            print(f"  Tracking Method: {tracking_window.tracking_method[tracking_window.current_tracking_method_id]}")
+            print(f"  Current Color Map: {computer_vision_window.color_map_names[computer_vision_window.color_maps[computer_vision_window.current_color_map_id]]}")
             print(f"  Label: {tracking_window.label}")
             print(f"  Calibrated: {tracking_window.calibrated}")
             print(f"  Colors Picked: {tracking_window.colors_picked}")
             print(f"  Selected: {tracking_window.selected}")
-            print(f"  Hide: {tracking_window.hide}\n")
-            print("Controls: [c] Change Color Map | [d] Change Display Mode | [t] Change Tracking Method | [h] Hide/Show Window | [s] Select/Deselect Window | [l] Change Label | [q] Quit")
+            print(f"  Hide: {tracking_window.hide}")
+            print(f"  Previous Window: {tracking_window.prev.label if tracking_window.prev else 'None'} (ID: {tracking_window.prev.id if tracking_window.prev else 'None'})")
+            print(f"  Next Window: {tracking_window.next.label if tracking_window.next else 'None'} (ID: {tracking_window.next.id if tracking_window.next else 'None'})\n")
+            print(f"  Total Tracking Windows: {len(computer_vision_window.tracking_windows)}")
+            
+            print('''
+Controls: 
+[C] Change Color Map | [D] Change Display Mode 
+[Left Arrow] Select Previous Window | [Right Arrow] Select Next Window
+[N] Add New Window | [X] Remove Current Window | [H] Hide/Show Window
+[T] Change Tracking Method | [L] Change Label 
+[Q] Quit
+                  ''')
             
         else:
             print("Tracking window not calibrated yet.")
 
 
 def main():
-    
+
     if len(sys.argv) > 1:
         game_title = sys.argv[1]
         number_of_objects = int(sys.argv[2])
@@ -491,14 +599,23 @@ def main():
     computer_vision_window = ComputerVisionWindow()
     terminal = Terminal()
     
-    for index in range(number_of_objects):
-        tracking_window = TrackingWindow(required_colors, index)
-        computer_vision_window.tracking_windows.append(tracking_window)
-        terminal.tracking_windows.append(tracking_window)
-        
+    previous_window = None
+    
+    for id in range(number_of_objects):
+        tracking_window = TrackingWindow(required_colors, id)
+        computer_vision_window.tracking_windows[id] = tracking_window
+        terminal.tracking_windows[id] = tracking_window
+        if previous_window:
+            previous_window.next = tracking_window
+            tracking_window.prev = previous_window
+        previous_window = tracking_window
+    
+    terminal.head = computer_vision_window.tracking_windows[0]
+    terminal.end = computer_vision_window.tracking_windows[id]
     tracking_window = computer_vision_window.tracking_windows[0]
-    computer_vision_window.tracking_window_index = 0
+    computer_vision_window.tracking_window_id = 0
     tracking_window.selected = True
+    terminal.next_available_id = number_of_objects
     
     t = time.time()
     
@@ -533,9 +650,10 @@ def main():
                     frame = np.array(screenshot)
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
                     computer_vision_window.frame = frame
+                    terminal.frame = frame
                     computer_vision_window.hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
                     
-                    for window in computer_vision_window.tracking_windows:
+                    for window in computer_vision_window.tracking_windows.values():
                         if not window.calibrated:
                             terminal.update_terminal(window, computer_vision_window)
                             
@@ -557,10 +675,10 @@ def main():
                         # Draw the tracking rectangle
                         window.draw_tracking_window()
                         computer_vision_window.draw_tracking_window(frame, window)
-                    tracking_window = computer_vision_window.tracking_windows[computer_vision_window.tracking_window_index]
+                    tracking_window = computer_vision_window.tracking_windows[computer_vision_window.tracking_window_id]
                         
-                    if computer_vision_window.color_maps[computer_vision_window.current_color_map_index] is not None:
-                                            tracking_window.dest = cv2.applyColorMap(tracking_window.dest, computer_vision_window.color_maps[computer_vision_window.current_color_map_index])                                            
+                    if computer_vision_window.color_maps[computer_vision_window.current_color_map_id] is not None:
+                                            tracking_window.dest = cv2.applyColorMap(tracking_window.dest, computer_vision_window.color_maps[computer_vision_window.current_color_map_id])                                            
                 
                     if computer_vision_window.display_modes[computer_vision_window.current_display_mode] == "backprojection":
                         cv2.imshow("projection", tracking_window.dest)
