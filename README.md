@@ -21,7 +21,7 @@ If you want to try out the tool:
         pip install -r requirements.txt
     
     6. Run summitcv.py
-        python summitcv.py [name of source window] [# tracking windows] [# colors in each mask] [optional source dimensions file]
+        python summitcv.py [name of source window] [# tracking windows] [# colors in each mask] [optional dimensions '.txt' file]
     
     7. Calbirate tracking window size
 
