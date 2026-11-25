@@ -20,14 +20,13 @@ If you want to try out the tool:
     5. Install requirements
         pip install -r requirements.txt
     
-    6. Run the tool
+    6. Run summitcv.py
         python summitcv.py [name of source window] [# tracking windows] [# colors in each mask] [optional source dimensions file]
     
     7. Calbirate tracking window size
 
-    8. Pick colors 
+    8. Pick colors to mask for
 
-    9. You're done!
-
+    9. Setup is done
 
 ### TODO: table of contents, usage guide, examples, gifs, and so on
