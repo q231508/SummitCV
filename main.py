@@ -47,6 +47,9 @@ class SourceWindow():
         return windows[0]
 
     def activate_source(self):
+        """
+        Focuses the source window
+        """
         self.window.activate()
         time.sleep(0.5)
 
@@ -63,11 +66,14 @@ class ComputerVisionWindow():
         self.current_color_map_id = 0
         self.display_modes = ["normal", "backprojection"]
         self.current_display_mode = 0 
+        self.color_change = None
         
     
-    def calibrate_window(self, tracking_window):
+    def calibrate_window(self, tracking_window, color_change=None):
+
         original_id = self.tracking_window_id
         self.tracking_window_id = tracking_window.id
+        self.color_change = color_change
         cv2.namedWindow("calibration")
         x, y, width, height = cv2.getWindowImageRect("calibration")
 
@@ -81,11 +87,17 @@ class ComputerVisionWindow():
         cv2.destroyWindow("calibration")
         
         cv2.namedWindow("pick colors")
-        cv2.moveWindow("pick colors", tracking_window.initial_x + x, tracking_window.initial_y + y)
+        if color_change:
+            cv2.moveWindow("pick colors", x, y)
+        else:
+            cv2.moveWindow("pick colors", tracking_window.initial_x + x, tracking_window.initial_y + y)
         
         cv2.setMouseCallback("pick colors", self.pick_colors_callback)
         while not tracking_window.colors_picked:
-            cv2.imshow("pick colors", self.frame[tracking_window.initial_y:tracking_window.initial_y+tracking_window.initial_h, tracking_window.initial_x:tracking_window.initial_x+tracking_window.initial_w])
+            if color_change:
+                cv2.imshow("pick colors", self.frame)
+            else:
+                cv2.imshow("pick colors", self.frame[tracking_window.initial_y:tracking_window.initial_y+tracking_window.initial_h, tracking_window.initial_x:tracking_window.initial_x+tracking_window.initial_w])
             key = cv2.waitKey(1) & 0xFF
             if key == ord("q") or key == 27:
                 exit()
@@ -162,7 +174,10 @@ class ComputerVisionWindow():
 
         if event == cv2.EVENT_LBUTTONDOWN:
             # Get the pixel color at the clicked position
-            pixel_color = self.frame[tracking_window.initial_y + y, tracking_window.initial_x + x]
+            if self.color_change:
+                pixel_color = self.frame[y, x]
+            else:
+                pixel_color = self.frame[tracking_window.initial_y + y, tracking_window.initial_x + x]
             hsv_color = self.rgb_to_hsv(pixel_color[::-1])  # Convert BGR to RGB before converting to HSV
             print(f"Clicked color (BGR): {pixel_color}, (HSV): {hsv_color}")
 
@@ -187,6 +202,7 @@ class ComputerVisionWindow():
         elif event == cv2.EVENT_LBUTTONUP:
             if len(tracking_window.lower) >= int(tracking_window.required_colors):  # Assuming we want to pick the specified number of colors
                 tracking_window.colors_picked = True 
+                self.color_change = None
                 
     def rgb_to_hsv(self, rgb):
         pixel = np.uint8([[rgb]])
@@ -617,9 +633,10 @@ class Terminal():
             try:
                 int(colors)
                 tracking_window.colors_picked = False
-                tracking_window.required_colors = colors
+                tracking_window.required_colors = int(colors)
                 tracking_window.lower = []
                 tracking_window.upper = []
+                computer_vision_window.calibrate_window(tracking_window, color_change=True)
                 message = f"Created {tracking_window.label}'s new mask "
             except:
                 message = "Invalid input for # of colors."
