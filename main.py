@@ -4,7 +4,6 @@ import time
 import cv2
 import mss
 import numpy as np
-from numpy.strings import index
 import pygetwindow as gw
 
 import subprocess
@@ -13,36 +12,41 @@ import platform
 import keyboard
 
 
-class GameWindow():
-    def __init__(self, title):
-        self.game_title = title
-        self.window = self.find_game()
-        
+class SourceWindow():
+    def __init__(self, title, file):
+        self.source_title = title
+        self.window = self.find_source()
+        self.config_file = file
     
-    def find_game(self):
-        windows = gw.getWindowsWithTitle(self.game_title)
+    def find_source(self):
+        """
+        Find the source window by its title.
+        
+        Resizes the source window to a provided size if available, otherwise resizes to default.
+        """
+        windows = gw.getWindowsWithTitle(self.source_title)
     
         if not windows:
-            raise RuntimeError(f"{self.game_title} not running")
+            raise RuntimeError(f"{self.source_title} not running")
         if windows[0].isMinimized:
             windows[0].restore()
             time.sleep(0.5)
             
         try:
-            size = open("game_window_size.txt", "r")
+            size = open(self.config_file, "r")
             dims = size.readlines()
-            windows[0].resizeTo(int(dims[0]), int(dims[1]))
+            if dims[2] == "y":
+                windows[0].resizeTo(int(dims[0]), int(dims[1]))
+            size.close()
         except:
-            size = open("game_window_size.txt", "w")
-            size.write(f"{str(windows[0].width)}\n")
-            size.write(f"{str(windows[0].height)}\n")
-        size.close()
+            windows[0].resizeTo(800, 600)
+            
         windows[0].moveTo(0, 0)
         self.window = windows[0]
         
         return windows[0]
 
-    def activate_game(self):
+    def activate_source(self):
         self.window.activate()
         time.sleep(0.5)
 
@@ -129,8 +133,26 @@ class ComputerVisionWindow():
             )      
             
             tracking_window.calibrated = True
-            tracking_window.initial_x = tracking_window.start_point[0]
-            tracking_window.initial_y = tracking_window.start_point[1]
+            
+            if tracking_window.start_point[0] < tracking_window.current_point[0]:
+                tracking_window.initial_x = tracking_window.start_point[0]
+            else:
+                tracking_window.initial_x = tracking_window.current_point[0]
+            
+            if tracking_window.start_point[1] < tracking_window.current_point[1]:
+                tracking_window.initial_y = tracking_window.start_point[1]
+            else:
+                tracking_window.initial_y = tracking_window.current_point[1]
+                
+            if tracking_window.initial_x < 0:
+                tracking_window.initial_x = 0
+            elif tracking_window.initial_x >= self.frame.shape[1]:
+                tracking_window.initial_x = self.frame.shape[1] - 1                
+            if tracking_window.initial_y < 0:
+                tracking_window.initial_y = 0
+            elif tracking_window.initial_y >= self.frame.shape[0]:
+                tracking_window.initial_y = self.frame.shape[0] - 1
+
             tracking_window.initial_w = abs(tracking_window.current_point[0] - tracking_window.start_point[0])
             tracking_window.initial_h = abs(tracking_window.current_point[1] - tracking_window.start_point[1])
             
@@ -293,6 +315,12 @@ class TrackingWindow():
         self.track_window = (0, 0, 0, 0)
         self.camshift_track_window = (0, 0, 0, 0)
         self.meanshift_track_window = (0, 0, 0, 0)
+        self.x = 0
+        self.y = 0
+        self.w = 0
+        self.h = 0
+        self.center_x = 0
+        self.center_y = 0
         self.track_box = None
         self.required_colors = required_colors
         self.tracking_method = ["MeanShift", "CamShift"]
@@ -345,22 +373,22 @@ class TrackingWindow():
         if self.tracking_method[self.current_tracking_method_id] == "MeanShift": 
             
             if not self.hide:
-                x, y, w, h = self.meanshift_track_window
+                self.x, self.y, self.w, self.h = self.meanshift_track_window
                 cv2.rectangle(
                     self.dest,
-                    (x, y),
-                    (x + w, y + h),
+                    (self.x, self.y),
+                    (self.x + self.w, self.y + self.h),
                     (255, 0, 0),  # Blue 
                     2
                 )
                 
                 # Draw the center point
-                center_x = x + w // 2
-                center_y = y + h // 2
+                self.center_x = self.x + self.w // 2
+                self.center_y = self.y + self.h // 2
 
                 cv2.circle(
                     self.dest,
-                    (center_x, center_y),
+                    (self.center_x, self.center_y),
                     4,
                     (255, 0, 0),  # Blue
                     -1
@@ -368,7 +396,7 @@ class TrackingWindow():
                 cv2.putText(
                     self.dest,
                     self.label,
-                    (x, y - 10),
+                    (self.x, self.y - 10),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.6,
                     (255, 0, 0),
@@ -376,12 +404,12 @@ class TrackingWindow():
                 )  
         else:
             if not self.hide:
-                x, y, w, h = self.camshift_track_window
-                center_x = x + w // 2
-                center_y = y + h // 2
+                self.x, self.y, self.w, self.h = self.camshift_track_window
+                self.center_x = self.x + self.w // 2
+                self.center_y = self.y + self.h // 2
                 cv2.circle(
                     self.dest,
-                    (center_x, center_y),
+                    (self.center_x, self.center_y),
                     4,
                     (255, 0, 0),  # Blue 
                     -1
@@ -399,7 +427,7 @@ class TrackingWindow():
                 cv2.putText(
                     self.dest,
                     self.label,
-                    (x, y - 10),
+                    (self.x, self.y - 10),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.6,
                     (255, 0, 0),
@@ -415,9 +443,9 @@ class Terminal():
         self.next_available_id = 0
         self.frame = None
         self.head = None
-        self.end = None
-        self.command = ""
-        self.typing = False
+        self.end = None   
+        self.source_window = None     
+        self.verbose = False
     
     def clear_screen(self):
         # Determine the command based on the OS
@@ -535,69 +563,146 @@ class Terminal():
 
         elif key == ord("l") or key == ord("L"):
             original_label = tracking_window.label
-            self.typing = True
-            tracking_window.label = input("Enter new label for the selected tracking window: ")
-            message = f"Window {original_label} label changed to: {tracking_window.label}"
+            new_label = input("Enter new label for the selected tracking window: ")
+            if new_label == "":
+                message = "Label cannot be blank."
+            else:
+                message = f"Window {original_label} label changed to: {tracking_window.label}"
         
+        elif key == ord("r") or key == ord("R"):
+            print(f"Resetting tracking window: {tracking_window.label}")
+            tracking_window.calibrated = False
+            tracking_window.colors_picked = False
+            tracking_window.lower = []
+            tracking_window.upper = []
+            self.update_terminal(tracking_window, computer_vision_window)
+            computer_vision_window.display = self.frame
+            computer_vision_window.calibrate_window(tracking_window)
+            tracking_window.update_roi(self.frame)
             
+            message = f"Reset calibration for window: {tracking_window.label}"
+        
+        elif key == ord("s") or key == ord("S"):
+            try:
+                self.source_window.source_title = input("Enter new title for the source window: ")
+                self.source_window.window = self.source_window.find_source()
+                message = f"Source window title changed to: {self.source_window.source_title}"
+            except:
+                message = "Error occurred while changing source window title."
+
+        elif key == ord("e") or key == ord("E"):
+            print("If no name is provided, no file will be exported.")
+            file_name = input("Enter the name of the .txt file to export source window size [omit .txt]: ")
             
+            reuse = input(f"Reuse the current source dimensions ({self.source_window.window.width} width, {self.source_window.window.height} height) during your next session? [Y] or [N]. ")
+            
+            if file_name == "" or reuse == "":
+                message = "No file specified, or reuse not specified."
+            else:
+                try:
+                    size = open(file_name + ".txt", "w")
+                    size.write(f"{str(self.source_window.window.width)}\n")
+                    size.write(f"{str(self.source_window.window.height)}\n")
+                    if reuse.lower() == 'y':
+                        size.write(f"{reuse.lower()}\n")
+                    size.close()
+                    message = f"Source window size exported to: {file_name}"
+                except:
+                    message = "Error occurred while exporting."
+        
+        elif key == ord("m") or key == ord("M"):
+            print(f"Resetting the mask for tracking window: {tracking_window.label}")
+            print(f"The old mask consisted of {tracking_window.required_colors} colors.")
+            colors = input("How many colors will you pick for the new mask? ")
+            try:
+                int(colors)
+                tracking_window.colors_picked = False
+                tracking_window.required_colors = colors
+                tracking_window.lower = []
+                tracking_window.upper = []
+                message = f"Created {tracking_window.label}'s new mask "
+            except:
+                message = "Invalid input for # of colors."
+
+        
+        elif key == ord("v") or key == ord("V"):
+            self.verbose = not self.verbose
+
         self.update_terminal(tracking_window, computer_vision_window, message=message)
     
     def update_terminal(self, tracking_window, computer_vision_window, message=None):
         self.clear_screen()
-        print(f"Current Window: {tracking_window.label} (ID: {tracking_window.id})")
-        print(f"Head of Linked List: {self.head.label if self.head else 'None'} (ID: {self.head.id if self.head else 'None'})")
-        print(f"End of Linked List: {self.end.label if self.end else 'None'} (ID: {self.end.id if self.end else 'None'})")
+        print(f"Current Source Window:        {self.source_window.window.title}")
+        print(f"Current Tracking Window:      {tracking_window.label} (ID: {tracking_window.id})")
+        print(f"Head of Tracking Window List: {self.head.label if self.head else 'None'} (ID: {self.head.id if self.head else 'None'})")
+        print(f"End of Tracking Window List:  {self.end.label if self.end else 'None'} (ID: {self.end.id if self.end else 'None'})")
 
         if message:
             print(f"Message: {message}")
-        print("")
         if tracking_window.calibrated:
-            print(f"  Initial Position: ({tracking_window.initial_x}, {tracking_window.initial_y})")
-            print(f"  Initial Size: ({tracking_window.initial_w}, {tracking_window.initial_h})")
-            print(f"  HSV Lower Bounds: {tracking_window.lower}")
-            print(f"  HSV Upper Bounds: {tracking_window.upper}")
-            print(f"  Tracking Method: {tracking_window.tracking_method[tracking_window.current_tracking_method_id]}")
-            print(f"  Current Color Map: {computer_vision_window.color_map_names[computer_vision_window.color_maps[computer_vision_window.current_color_map_id]]}")
-            print(f"  Label: {tracking_window.label}")
-            print(f"  Calibrated: {tracking_window.calibrated}")
-            print(f"  Colors Picked: {tracking_window.colors_picked}")
-            print(f"  Selected: {tracking_window.selected}")
-            print(f"  Hide: {tracking_window.hide}")
-            print(f"  Previous Window: {tracking_window.prev.label if tracking_window.prev else 'None'} (ID: {tracking_window.prev.id if tracking_window.prev else 'None'})")
-            print(f"  Next Window: {tracking_window.next.label if tracking_window.next else 'None'} (ID: {tracking_window.next.id if tracking_window.next else 'None'})\n")
-            print(f"  Total Tracking Windows: {len(computer_vision_window.tracking_windows)}")
-            
-            print('''
-Controls: 
-[C] Change Color Map | [D] Change Display Mode 
-[Left Arrow] Select Previous Window | [Right Arrow] Select Next Window
-[N] Add New Window | [X] Remove Current Window | [H] Hide/Show Window
-[T] Change Tracking Method | [L] Change Label 
-[Q] Quit
-                  ''')
+            if self.verbose:
+                print(f'''
+    Window Label:     {tracking_window.label}
+    Tracking Method:  {tracking_window.tracking_method[tracking_window.current_tracking_method_id]}
+
+    Current Color Map:     {computer_vision_window.color_map_names[computer_vision_window.color_maps[computer_vision_window.current_color_map_id]]}
+    Mask HSV Lower Bounds: {tracking_window.lower}
+    Mask HSV Upper Bounds: {tracking_window.upper}
+   
+    Hidden:        {tracking_window.hide}
+    Selected:      {tracking_window.selected}
+    Calibrated:    {tracking_window.calibrated}
+    Colors Picked: {tracking_window.colors_picked}
+    
+    Source Window Dimensions: {self.source_window.window.width} width, {self.source_window.window.height} height
+
+  
+Next Tracking Window:     {tracking_window.next.label if tracking_window.next else 'None'} (ID: {tracking_window.next.id if tracking_window.next else 'None'})
+Previous Tracking Window: {tracking_window.prev.label if tracking_window.prev else 'None'} (ID: {tracking_window.prev.id if tracking_window.prev else 'None'})
+Total # Tracking Windows: {len(computer_vision_window.tracking_windows)}
+  ''')
             
         else:
             print("Tracking window not calibrated yet.")
 
+        print('''
+Controls: 
+[C] Change Color Map | [D] Change Display Mode | [M] Change Current Mask
+[N] Add New Window | [X] Remove Current Window | [H] Hide/Show Window
+[T] Change Tracking Method | [L] Change Label | [R] Reset Calibration
+[S] Change Source | [E] Export Source Window Size | [V] View/Hide Current Window Details
+[Left Arrow] Select Previous Window | [Right Arrow] Select Next Window
+[Q] Quit
+            ''')
 
 def main():
 
-    if len(sys.argv) > 1:
-        game_title = sys.argv[1]
-        number_of_objects = int(sys.argv[2])
-        required_colors = int(sys.argv[3])
+    if len(sys.argv) == 4:
+        try:
+            source_title = sys.argv[1]
+            number_of_objects = int(sys.argv[2])
+            required_colors = int(sys.argv[3])
+            
+            if len(sys.argv) == 5:
+                config_file = sys.argv[4]
+            else:
+                config_file = None
+        except:
+            print("\nERROR\n")
+            print("Intended use: python .\\main.py [source window title] [# tracking windows] [# mask colors] [optional config file]\n")    
+            exit()        
         
     else:
-        raise RuntimeError("Game title not provided. Please provide the game title as a command line argument.")
+        raise RuntimeError("Source title not provided. Please provide the source title as a command line argument.")
     
-    # Find the game window and activate it
-    game = GameWindow(game_title)
-    game.find_game()
-    game.activate_game()
+    # Find the source window and activate it
+    source = SourceWindow(source_title, config_file)
+    source.find_source()
+    source.activate_source()
 
     computer_vision_window = ComputerVisionWindow()
     terminal = Terminal()
+    terminal.source_window = source
     
     previous_window = None
     
@@ -628,13 +733,13 @@ def main():
                 if (time.time() - t) > 1/60:
                     t = time.time()
                     
-                    # Get the current game window position and size
-                    left = game.window.left 
-                    top = game.window.top
-                    width = game.window.width
-                    height = game.window.height
+                    # Get the current source window position and size
+                    left = source.window.left 
+                    top = source.window.top
+                    width = source.window.width
+                    height = source.window.height
                     if width <= 0 or height <= 0:
-                        raise RuntimeError("Game window is minimized or not visible")
+                        raise RuntimeError("Source window is minimized or not visible")
         
                     monitor = {
                         "left": left,
@@ -643,7 +748,7 @@ def main():
                         "height": height,
                     }
         
-                    # Capture the game window
+                    # Capture the source window
                     screenshot = screenshotter.grab(monitor)
         
                     # Convert screenshot image to an OpenCV BGR image
@@ -688,7 +793,7 @@ def main():
                     # q or Esc to quit
                     key = cv2.waitKey(1) & 0xFF
                     
-                    if key == ord("q") or key == 27:
+                    if key == ord("q") or key == 27 or keyboard.is_pressed("q") or keyboard.is_pressed("Q"):
                         break
 
                     if key != 255 or initial_print:  
