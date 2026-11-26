@@ -14,9 +14,10 @@ import keyboard
 
 class SourceWindow():
     def __init__(self, title, file):
+        self.config_file = file
         self.source_title = title
         self.window = self.find_source()
-        self.config_file = file
+        
     
     def find_source(self):
         """
@@ -565,6 +566,7 @@ class Terminal():
                 elif removed_window.next:
                     removed_window.next.prev = None
                     removed_window.next.selected = True
+                    self.head = removed_window.next
                     computer_vision_window.tracking_window_id = removed_window.next.id
                     tracking_window = removed_window.next
                                                         
@@ -583,6 +585,7 @@ class Terminal():
             if new_label == "":
                 message = "Label cannot be blank."
             else:
+                tracking_window.label = new_label
                 message = f"Window {original_label} label changed to: {tracking_window.label}"
         
         elif key == ord("r") or key == ord("R"):
